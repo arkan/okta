@@ -36,11 +36,8 @@ type Client struct {
 
 	common service // Reuse a single struct instead of allocating one for each service on the heap.
 
-	User *UserService
-	// Role  *RoleService
-	// Group *GroupService
-	// SAMLService  *SAMLService
-	// EventService *EventService
+	User  *UserService
+	Group *GroupService
 }
 
 // New returns a new Okta client.
@@ -53,8 +50,7 @@ func New(apiToken, organisation string) *Client {
 	c.common.client = c
 	c.BaseURL, _ = url.Parse(buildURL(baseURL, organisation))
 	c.User = (*UserService)(&c.common)
-	// c.Role = (*RoleService)(&c.common)
-	// c.Group = (*GroupService)(&c.common)
+	c.Group = (*GroupService)(&c.common)
 
 	return c
 }

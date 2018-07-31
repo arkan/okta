@@ -2,7 +2,13 @@ package okta
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
+)
+
+var (
+	ErrAuthenticationFailed = errors.New("authentication failed. Please check username/password.")
 )
 
 // UserService handles users operations.
@@ -21,6 +27,63 @@ type User struct {
 
 type getUsersQuery struct {
 	Limit int `url:"limit,omitempty"`
+}
+
+type authenticationResponse struct {
+	ExpiresAt    string `json:"expiresAt"`
+	Status       string `json:"status"`
+	RelayState   string `json:"relayState"`
+	SessionToken string `json:"sessionToken"`
+	Embedded     struct {
+		User struct {
+			ID              string    `json:"id"`
+			PasswordChanged time.Time `json:"passwordChanged"`
+			Profile         struct {
+				Login     string `json:"login"`
+				FirstName string `json:"firstName"`
+				LastName  string `json:"lastName"`
+				Locale    string `json:"locale"`
+				TimeZone  string `json:"timeZone"`
+			} `json:"profile"`
+		} `json:"user"`
+	} `json:"_embedded"`
+}
+
+// Authenticate the user with username and password.
+// relayState can be used to add additional information.
+func (s *UserService) Authenticate(ctx context.Context, username, password, relayState string) (*User, error) {
+	u := "/api/v1/authn"
+
+	post := struct {
+		Username   string                 `json:"username"`
+		Password   string                 `json:"password"`
+		RelayState string                 `json:"relayState"`
+		Options    map[string]interface{} `json:"options"`
+	}{
+		username,
+		password,
+		relayState,
+		map[string]interface{}{
+			"warnBeforePasswordExpired": false,
+			"multiOptionalFactorEnroll": false,
+		},
+	}
+	req, err := s.client.NewRequest("POST", u, post)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp authenticationResponse
+	_, err = s.client.Do(ctx, req, resp)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.Status != "SUCCESS" {
+		return nil, ErrAuthenticationFailed
+	}
+
+	return s.GetUser(ctx, resp.Embedded.User.ID)
 }
 
 // GetUsers returns all the users.
