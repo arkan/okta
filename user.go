@@ -74,7 +74,7 @@ func (s *UserService) Authenticate(ctx context.Context, username, password, rela
 	}
 
 	var resp authenticationResponse
-	_, err = s.client.Do(ctx, req, resp)
+	_, err = s.client.Do(ctx, req, &resp)
 	if err != nil {
 		return nil, err
 	}

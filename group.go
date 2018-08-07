@@ -49,9 +49,6 @@ type getGroupsQuery struct {
 func (s *GroupService) GetGroups(ctx context.Context) ([]*Group, error) {
 	u := "/api/v1/groups"
 
-	var groups []*Group
-	var rawGroups []*group
-
 	uu, err := addOptions(u, &getGroupsQuery{Limit: 200})
 	if err != nil {
 		return nil, err
@@ -66,11 +63,13 @@ func (s *GroupService) GetGroups(ctx context.Context) ([]*Group, error) {
 		return nil, err
 	}
 
+	var rawGroups []*group
 	_, err = s.client.Do(ctx, req, &rawGroups)
 	if err != nil {
 		return nil, err
 	}
 
+	var groups []*Group
 	for _, g := range rawGroups {
 		// skipping anything that is not an OKTA_GROUP (not sure when this can happen).
 		if g.Type != "OKTA_GROUP" {
@@ -111,4 +110,43 @@ func (s *GroupService) GetGroupMembership(ctx context.Context, groupID string) (
 	}
 
 	return users, nil
+}
+
+func (s *GroupService) GetUserGroups(ctx context.Context, userID string) ([]*Group, error) {
+	u := fmt.Sprintf("/api/v1/users/%v/groups", userID)
+
+	uu, err := addOptions(u, &getGroupsQuery{Limit: 200})
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := s.client.NewRequest("GET", uu, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.client.AddAuthorization(ctx, req); err != nil {
+		return nil, err
+	}
+
+	var rawGroups []*group
+	_, err = s.client.Do(ctx, req, &rawGroups)
+	if err != nil {
+		return nil, err
+	}
+
+	var groups []*Group
+	for _, g := range rawGroups {
+		// skipping anything that is not an OKTA_GROUP (not sure when this can happen).
+		if g.Type != "OKTA_GROUP" {
+			continue
+		}
+
+		groups = append(groups, &Group{
+			ID:   g.ID,
+			Name: g.Profile.Name,
+		})
+	}
+
+	return groups, nil
 }
