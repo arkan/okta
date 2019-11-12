@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/tomnomnom/linkheader"
 )
 
 var (
@@ -86,28 +89,75 @@ func (s *UserService) Authenticate(ctx context.Context, username, password, rela
 	return s.GetUser(ctx, resp.Embedded.User.ID)
 }
 
+// GetUsersOptions allows to specify query options.
+type GetUsersOptions struct {
+	// PerPage is the max number of result in a page,
+	// max value defined by Okta is 200.
+	// If set to less than 1 or more than 200, it will be reset to 200.
+	PerPage int
+
+	// Pages is the max number of pages to retrieve.
+	// If 0, it will page until there's no more results to retrieve.
+	Pages int
+}
+
 // GetUsers returns all the users.
-func (s *UserService) GetUsers(ctx context.Context) ([]*User, error) {
+func (s *UserService) GetUsers(ctx context.Context, options *GetUsersOptions) ([]*User, error) {
 	u := "/api/v1/users"
 
-	uu, err := addOptions(u, &getUsersQuery{Limit: 200})
-	if err != nil {
-		return nil, err
+	perPage := options.PerPage
+	if perPage < 1 || perPage > 200 {
+		perPage = 200
 	}
 
-	req, err := s.client.NewRequest("GET", uu, nil)
+	uu, err := addOptions(u, &getUsersQuery{Limit: perPage})
 	if err != nil {
-		return nil, err
-	}
-
-	if err := s.client.AddAuthorization(ctx, req); err != nil {
 		return nil, err
 	}
 
 	var users []*User
-	_, err = s.client.Do(ctx, req, &users)
-	if err != nil {
-		return nil, err
+	var index = 0
+LOOP:
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("context done")
+		default:
+			req, err := s.client.NewRequest("GET", uu, nil)
+			if err != nil {
+				return nil, err
+			}
+
+			if err := s.client.AddAuthorization(ctx, req); err != nil {
+				return nil, err
+			}
+
+			var usersBatch []*User
+			resp, err := s.client.Do(ctx, req, &usersBatch)
+			if err != nil {
+				return nil, err
+			}
+			users = append(users, usersBatch...)
+
+			// Okta returns the next URL to page in the Link header,
+			// see https://developer.okta.com/docs/reference/api-overview/#link-header.
+			links := linkheader.Parse(strings.Join(resp.Header["Link"], ","))
+			var next string
+			for _, link := range links {
+				if link.Rel == "next" {
+					next = link.URL
+				}
+			}
+
+			index++
+			// Breaking if next url is empty, meaning there's no next results,
+			// or if we've paged enough based on the provided options.
+			if next == "" || index == options.Pages {
+				break LOOP
+			}
+
+			uu = next
+		}
 	}
 
 	return users, nil
